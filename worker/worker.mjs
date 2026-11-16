@@ -10,6 +10,10 @@ export async function handleRequest(request, env, send = fetch) {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { ...cors, 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type' } })
   if (request.method !== 'POST' || new URL(request.url).pathname !== '/order') return result(404, { error: 'not_found' })
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) return result(503, { error: 'not_configured' })
+  if (!env.ORDER_LIMIT || !env.GLOBAL_ORDER_LIMIT) return result(503, { error: 'not_configured' })
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown'
+  const [perVisitor, total] = await Promise.all([env.ORDER_LIMIT.limit({ key: ip }), env.GLOBAL_ORDER_LIMIT.limit({ key: 'all' })])
+  if (!perVisitor.success || !total.success) return result(429, { error: 'rate_limited' })
   const rawLength = Number(request.headers.get('Content-Length') || 0)
   if (rawLength > MAX_REQUEST) return result(413, { error: 'too_large' })
   let input

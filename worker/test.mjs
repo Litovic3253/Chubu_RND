@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { handleRequest } from './worker.mjs'
 
 const env = { TELEGRAM_BOT_TOKEN: 'test-token', TELEGRAM_CHAT_ID: '123', ALLOWED_ORIGIN: 'https://example.test' }
+env.ORDER_LIMIT = { limit: async () => ({ success: true }) }
+env.GLOBAL_ORDER_LIMIT = { limit: async () => ({ success: true }) }
 const headers = { Origin: env.ALLOWED_ORIGIN }
 const makeRequest = (message, image) => {
   const form = new FormData()
@@ -40,4 +42,6 @@ assert.equal(response.status, 200)
 assert.ok(withoutImage[0].url.endsWith('/sendMessage'))
 response = await handleRequest(new Request('https://worker.test/order', { method: 'POST', headers: { Origin: 'https://other.test' } }), env, telegram)
 assert.equal(response.status, 403)
+response = await handleRequest(makeRequest('тест', image), { ...env, ORDER_LIMIT: { limit: async () => ({ success: false }) } }, telegram)
+assert.equal(response.status, 429)
 console.log('Worker: original file, full order, invalid input and failures verified')

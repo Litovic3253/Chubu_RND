@@ -4,3 +4,13 @@ compatibility_date = "2026-11-01"
 
 [vars]
 ALLOWED_ORIGIN = "https://litovic3253.github.io"
+
+[[ratelimits]]
+name = "ORDER_LIMIT"
+namespace_id = "98543101"
+simple = { limit = 3, period = 60 }
+
+[[ratelimits]]
+name = "GLOBAL_ORDER_LIMIT"
+namespace_id = "98543102"
+simple = { limit = 20, period = 60 }
