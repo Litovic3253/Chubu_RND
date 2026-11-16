@@ -1,0 +1,20 @@
+{
+  "name": "chubu-configurator",
+  "private": true,
+  "version": "1.1.0",
+  "scripts": {
+    "build": "tsc --noEmit && esbuild src/main.tsx --bundle --format=iife --target=es2020 --loader:.stl=dataurl --minify --outfile=app.js"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/three": "^0.170.0",
+    "esbuild": "0.25.0",
+    "typescript": "^5.8.3"
+  }
+}
