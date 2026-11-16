@@ -1,0 +1,6 @@
+name = "chubu-orders"
+main = "worker.mjs"
+compatibility_date = "2026-11-01"
+
+[vars]
+ALLOWED_ORIGIN = "https://litovic3253.github.io"

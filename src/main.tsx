@@ -10,6 +10,7 @@ import { ConfigurationPanels } from './panels'
 import { LogoAttachment } from './LogoAttachment'
 import { createOrderLinks } from './orderLinks'
 import { OrderView } from './OrderView'
+import { ORDER_API_URL, sendOrder } from './orderApi'
 
 const colors = [['Чёрный', '#202020'], ['Белый', '#e6e4df'], ['Красный', '#a52d2a'], ['Синий', '#28557d'], ['Серый', '#777778']] as const
 const packages = ['Базовая — 3000 ₽', 'С кнопкой и пищалкой — 3500 ₽', 'Максимальная — 4000 ₽']
@@ -80,10 +81,11 @@ function App() {
   const [logoName, setLogoName] = useState('')
   const [logoFile, setLogoFile] = useState<File | null>(null)
   const [splashTiming, setSplashTiming] = useState({ appearMs: 1500, holdMs: 1500, smooth: 8, logoEffect: 0, logoAppearMs: 1500, logoHoldMs: 1500 })
-  const [orderText, setOrderText] = useState('')
   const [orderLinks, setOrderLinks] = useState<string[]>([])
   const [orderMode, setOrderMode] = useState<'direct' | 'page' | 'parts'>('direct')
   const [orderError, setOrderError] = useState('')
+  const [sendingOrder, setSendingOrder] = useState(false)
+  const [orderSent, setOrderSent] = useState(false)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const nextEmotionIndex = useRef(0)
   useEffect(() => () => clearTimeout(timer.current), [])
@@ -115,10 +117,11 @@ function App() {
     setPreview(p => ({ ...p, splash: true, seq: p.seq + 1, message: 'Заставка при включении' }))
     timer.current = setTimeout(() => setPreview(p => ({ ...p, splash: false, id: 9, message: 'Обычные глазки в покое' })), Math.max(800, splashLength(splash, logo !== null)))
   }
-  function submit(event: FormEvent) {
+  async function submit(event: FormEvent) {
     event.preventDefault()
     setOrderError('')
     setOrderLinks([])
+    setOrderSent(false)
     if (tuneProblems) { document.querySelector('#sounds')?.scrollIntoView({ behavior: 'smooth' }); return }
     const assignedPins = Object.values(pins).filter(Boolean)
     if (output === 'Усилитель I2S' && new Set(assignedPins).size !== assignedPins.length) { setOrderError('Пины I2S не должны повторяться.'); return }
@@ -150,10 +153,16 @@ function App() {
       `- Режим: ${settings.splash}`, `- Текст: ${settings.word || 'без текста'}`, `- Шрифт: ${settings.font}`,
       `- Эффект слова: ${settings.effect}, ${splash.appearMs} мс`, `- Слово держать: ${splash.holdMs} мс`, `- Плавность: ${splash.smooth}/10`,
       `- Логотип: ${logoName || 'не загружен'}`, `- Эффект логотипа: ${SPLASH_EFFECTS[splash.logoEffect].title}, ${splash.logoAppearMs} мс`, `- Логотип держать: ${splash.logoHoldMs} мс`,
-      ...(logoName ? ['', 'Файл логотипа прикреплю отдельным сообщением.'] : [])
+      ...(logoName && !ORDER_API_URL ? ['', 'Файл логотипа прикреплю отдельным сообщением.'] : [])
     ].join('\n')
+    if (ORDER_API_URL) {
+      setSendingOrder(true)
+      try { await sendOrder(message, logoFile); setOrderSent(true) }
+      catch (error) { setOrderError(error instanceof Error ? error.message : 'Не удалось отправить заказ. Попробуйте ещё раз.') }
+      finally { setSendingOrder(false) }
+      return
+    }
     const result = createOrderLinks(message, window.location.href)
-    setOrderText(message)
     setOrderLinks(result.links)
     setOrderMode(result.mode)
     if (!logoFile && result.links.length === 1) window.open(result.links[0], '_blank', 'noopener,noreferrer')
@@ -166,7 +175,7 @@ function App() {
   <section className="card" id="case"><div className="card-head"><div><span className="kicker">КОРПУС</span><h3>Выберите цвет</h3><p>Вращайте модель мышью или пальцем.</p></div><span className="pill">3D ПРОСМОТР</span></div><div className="case-layout"><Model color={colors.find(c => c[0] === color)?.[1] ?? '#202020'}/><div className="case-options"><span className="field-label">ЦВЕТ КОРПУСА</span><div id="colors" className="colors">{colors.map(([name,value]) => <button type="button" key={name} className="swatch" style={{background:value}} aria-label={name} aria-pressed={color === name} onClick={() => setColor(name)}/>)}</div><p className="color-name">{color}</p><div className="info">Цвет на экране может отличаться от цвета готового изделия.</div><span className="field-label">ВЫБРАННАЯ КОМПЛЕКТАЦИЯ</span><strong className="price" id="price">{['3 000 ₽','3 500 ₽','4 000 ₽'][packages.indexOf(settings.package)]}</strong><p className="muted">Стоимость доставки уточняется.</p></div></div></section>
   <section className="card" id="emotions"><div className="card-head"><div><span className="kicker">ХАРАКТЕР</span><h3>Эмоции Чубу</h3><p>Выберите анимации, которые будут на устройстве.</p></div><span className="pill" id="count">{selected.size} / 64</span></div><div className="controls"><input id="search" type="search" placeholder="Найти эмоцию" aria-label="Найти эмоцию" value={query} onChange={e => setQuery(e.target.value)}/><button type="button" className="subtle" id="all" onClick={() => setSelected(new Set(emotions.map(e => e.index)))}>Выбрать все</button><button type="button" className="subtle" id="none" onClick={() => { setSelected(new Set([9])); setSettings(s => ({...s,idle:actionOptions[0],intro:'Ничего',touch:actionOptions[0],double:actionOptions[0]})) }}>Снять выбор</button></div><div id="emotion-grid" className="emotion-grid">{emotions.filter(e => e.title.toLowerCase().includes(query.trim().toLowerCase())).map(e => <div className="emotion" key={e.index}><img src={gif(e.index)} loading="lazy" alt=""/><label className="emotion-label"><input type="checkbox" value={e.index} checked={selected.has(e.index)} disabled={e.index === 9} onChange={event => toggleEmotion(e.index,event.target.checked)}/>{e.index + 1}. {e.title}</label>{clipKind(e.index) && <button type="button" className="clip-play" onClick={() => playClip(e.index, 'Усилитель I2S', true, volume)}>▶ {clipKind(e.index)}</button>}</div>)}</div><p className="muted">Обычные глазки остаются включёнными между эмоциями.</p></section>
   <ConfigurationPanels pins={pins} setPins={setPins} settings={settings} set={set} pickAction={pickAction} splash={splash} setTiming={setSplashTiming} logo={logo} logoName={logoName} setLogo={(data, name, file) => { setLogo(data); setLogoName(name); setLogoFile(file); setOrderLinks([]) }} soundOn={soundOn} setSoundOn={setSoundOn} clipsOn={clipsOn} setClipsOn={setClipsOn} output={output} setOutput={setOutput} volume={volume} setVolume={setVolume} tunes={tunes} setTunes={setTunes} invert={invert} setInvert={setInvert} preview={preview} showAction={showAction} showSplash={showSplash} summary={summary}/>
-  <section className="card order" id="order"><div className="card-head"><div><span className="kicker">ПОСЛЕДНИЙ ШАГ</span><h3>Осталось познакомиться</h3><p>Оставьте контакты — обсудим детали и стоимость.</p></div></div><div className="fields">{([['Имя','name',80],['Телефон или Telegram','contact',120],['Город','city',80],['Комментарий','comment',300]] as const).map(([label,key,max]) => <label key={key}>{label}{key !== 'comment' && <span> *</span>}<input name={key} required={key !== 'comment'} maxLength={max} value={settings[key]} onChange={e => set(key,e.target.value)}/></label>)}</div><div className="submit-row"><p>{logoFile ? 'Сначала подготовьте заказ, затем отправьте текст и картинку логотипа в Telegram.' : 'Откроется Telegram с готовым текстом заказа. Проверьте его и нажмите «Отправить».'}</p><button className="button" type="submit" disabled={tuneProblems}>{logoFile ? 'Подготовить заказ' : 'Отправить заказ'} <span>↗</span></button></div>{orderError && <p role="alert" className="sound-error">{orderError}</p>}{tuneProblems && <p role="alert" className="sound-error">Исправьте ошибки в мелодиях, прежде чем отправить заказ.</p>}{orderLinks.length > 0 && <div id="result" className="order-delivery" role="status"><strong>{logoFile ? '1. Отправьте заказ' : 'Заказ подготовлен'}</strong><p>{orderMode === 'parts' ? 'Отправьте каждую часть заказа по порядку: откройте ссылку и нажмите «Отправить» в Telegram.' : orderMode === 'page' ? 'Откройте Telegram и отправьте сообщение со ссылкой на полный заказ. Детали заказа можно проверить ниже.' : 'Откройте заказ, проверьте текст в Telegram и нажмите «Отправить».'}</p>{orderLinks.map((link, i) => <a className="subtle" key={link} href={link} target="_blank" rel="noopener noreferrer" style={{display: 'inline-flex', marginRight: 8, marginBottom: 8}}>{orderLinks.length > 1 ? `Отправить часть ${i + 1} из ${orderLinks.length} ↗` : 'Открыть заказ в Telegram ↗'}</a>)}{logoFile && <LogoAttachment file={logoFile}/>}<label>Текст заказа<textarea readOnly value={orderText}/></label></div>}</section>
+  <section className="card order" id="order"><div className="card-head"><div><span className="kicker">ПОСЛЕДНИЙ ШАГ</span><h3>Осталось познакомиться</h3><p>Оставьте контакты — обсудим детали и стоимость.</p></div></div><div className="fields">{([['Имя','name',80],['Телефон или Telegram','contact',120],['Город','city',80],['Комментарий','comment',300]] as const).map(([label,key,max]) => <label key={key}>{label}{key !== 'comment' && <span> *</span>}<input name={key} required={key !== 'comment'} maxLength={max} value={settings[key]} onChange={e => set(key,e.target.value)}/></label>)}</div><div className="submit-row"><p>{ORDER_API_URL ? 'Отправим заказ и выбранный логотип продавцу в Telegram.' : logoFile ? 'Сначала подготовьте заказ, затем отправьте текст и картинку логотипа в Telegram.' : 'Откроется Telegram с готовым текстом заказа. Проверьте его и нажмите «Отправить».'}</p><button className="button" type="submit" disabled={tuneProblems || sendingOrder}>{sendingOrder ? 'Отправляем…' : ORDER_API_URL ? 'Отправить заказ' : logoFile ? 'Подготовить заказ' : 'Отправить заказ'} <span>↗</span></button></div>{orderSent && <p role="status">Заказ отправлен. Мы свяжемся с вами!</p>}{orderError && <p role="alert" className="sound-error">{orderError}</p>}{tuneProblems && <p role="alert" className="sound-error">Исправьте ошибки в мелодиях, прежде чем отправить заказ.</p>}{orderLinks.length > 0 && <div id="result" className="order-delivery" role="status"><strong>{logoFile ? '1. Отправьте заказ' : 'Заказ подготовлен'}</strong><p>{orderMode === 'parts' ? 'Отправьте каждую часть заказа по порядку: откройте ссылку и нажмите «Отправить» в Telegram.' : orderMode === 'page' ? 'Откройте Telegram и отправьте сообщение со ссылкой на полный заказ. Отправьте его продавцу.' : 'Откройте заказ, проверьте текст в Telegram и нажмите «Отправить».'}</p>{orderLinks.map((link, i) => <a className="subtle" key={link} href={link} target="_blank" rel="noopener noreferrer" style={{display: 'inline-flex', marginRight: 8, marginBottom: 8}}>{orderLinks.length > 1 ? `Отправить часть ${i + 1} из ${orderLinks.length} ↗` : 'Открыть заказ в Telegram ↗'}</a>)}{logoFile && <LogoAttachment file={logoFile}/>}</div>}</section>
   </form></section></main><footer className="wrap"><span>ЧУБУ ПАУЛЮКЕВИЧУСА</span><span>СДЕЛАНО С ХАРАКТЕРОМ ✳</span></footer></>
 }
 
