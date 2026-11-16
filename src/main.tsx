@@ -7,6 +7,7 @@ import emotions from '../assets/emotions.json'
 import { DEFAULT_SPLASH, SPLASH_FONTS, SPLASH_EFFECTS, TUNE_SLOTS, melodyProblems, splashLength, type SplashSettings } from './core/setup'
 import { initialTunes, playTune, playClip, clipKind, type SoundChoice, type SoundPins } from './sound'
 import { ConfigurationPanels } from './panels'
+import { OrderDelivery } from './OrderDelivery'
 
 const colors = [['Чёрный', '#202020'], ['Белый', '#e6e4df'], ['Красный', '#a52d2a'], ['Синий', '#28557d'], ['Серый', '#777778']] as const
 const packages = ['Базовая — 3000 ₽', 'С кнопкой и пищалкой — 3500 ₽', 'Максимальная — 4000 ₽']
@@ -76,7 +77,8 @@ function App() {
   const [logo, setLogo] = useState<Uint8Array | null>(null)
   const [logoName, setLogoName] = useState('')
   const [splashTiming, setSplashTiming] = useState({ appearMs: 1500, holdMs: 1500, smooth: 8, logoEffect: 0, logoAppearMs: 1500, logoHoldMs: 1500 })
-  const [orderUrl, setOrderUrl] = useState('')
+  const [orderText, setOrderText] = useState('')
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'pending' | 'copied' | 'manual'>('idle')
   const [orderError, setOrderError] = useState('')
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const nextEmotionIndex = useRef(0)
@@ -109,6 +111,28 @@ function App() {
     setPreview(p => ({ ...p, splash: true, seq: p.seq + 1, message: 'Заставка при включении' }))
     timer.current = setTimeout(() => setPreview(p => ({ ...p, splash: false, id: 9, message: 'Обычные глазки в покое' })), Math.max(800, splashLength(splash, logo !== null)))
   }
+  async function copyOrder(message: string) {
+    setCopyStatus('pending')
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(message)
+      } else {
+        const field = document.createElement('textarea')
+        field.value = message
+        field.setAttribute('readonly', '')
+        field.style.position = 'fixed'
+        field.style.left = '-9999px'
+        document.body.appendChild(field)
+        field.select()
+        const copied = document.execCommand('copy')
+        field.remove()
+        if (!copied) throw new Error('Clipboard unavailable')
+      }
+      setCopyStatus('copied')
+    } catch {
+      setCopyStatus('manual')
+    }
+  }
   function submit(event: FormEvent) {
     event.preventDefault()
     setOrderError('')
@@ -119,7 +143,9 @@ function App() {
     const tuneDetails = TUNE_SLOTS.map(slot => `${slot.title}${slot.simhub ? ' (SimHub)' : ''}: ${tunes[slot.id] || 'тишина'}`).join('; ')
     const message = ['Здравствуйте! Хочу заказать Чубу.', `Комплектация: ${settings.package}`, `Плата: ESP32-C3, экран OLED 0,96″: ${settings.display}`, `Цвет корпуса: ${color}`, `Эмоции: ${list}`, `В покое: ${settings.idle}; при включении: ${settings.intro}; касание: ${settings.touch}; двойное касание: ${settings.double}`, `Скорость: ${settings.speed}%; пауза: ${settings.pause} с; яркость: ${settings.brightness}/10; негатив: ${invert ? 'вкл' : 'выкл'}; язык: ${settings.language}`, `Звук: ${soundOn ? 'вкл' : 'выкл'}; выход: ${output}; громкость: ${volume}/10; звуки анимаций: ${clipsOn ? 'вкл' : 'выкл'}`, ...(output === 'Усилитель I2S' ? [`Пины I2S — LRCK: ${pins.lrck || 'уточнить'}, BCK: ${pins.bck || 'уточнить'}, DIN: ${pins.din || 'уточнить'}`] : []), `Мелодии: ${tuneDetails}`, `Заставка: ${settings.splash}; текст: ${settings.word || 'без текста'}; шрифт: ${settings.font}; эффект: ${settings.effect}; появление: ${splash.appearMs} мс; держать: ${splash.holdMs} мс; плавность: ${splash.smooth}/10; эффект логотипа: ${SPLASH_EFFECTS[splash.logoEffect].title}; появление логотипа: ${splash.logoAppearMs} мс; держать: ${splash.logoHoldMs} мс; логотип: ${logoName || 'не загружен'}`, `Имя: ${settings.name}`, `Контакт: ${settings.contact}`, `Город: ${settings.city}`, `Комментарий: ${settings.comment || 'нет'}`, ...(logoName ? ['Прикреплю файл логотипа к сообщению.'] : [])].join('\n')
     if ([...message].length > 4096) { setOrderError('Заказ длиннее ограничения Telegram. Сократите пользовательские мелодии или комментарий.'); return }
-    const url = `https://t.me/LastJoudas?text=${encodeURIComponent(message)}`; setOrderUrl(url); window.open(url, '_blank', 'noopener,noreferrer')
+    setOrderText(message)
+    void copyOrder(message)
+    window.open('https://t.me/LastJoudas', '_blank', 'noopener,noreferrer')
   }
   const summary = [['Комплектация', settings.package], ['Экран', `OLED 0,96″, ${settings.display}`], ['Корпус', color], ['Эмоции', selected.size === 64 ? 'Все 64' : emotions.filter(e => selected.has(e.index)).map(e => e.title).join(', ')], ['В покое', settings.idle], ['При включении', settings.intro], ['Касание', settings.touch], ['Двойное касание', settings.double], ['Заставка', `${settings.splash} · ${settings.word} · ${settings.font} · ${settings.effect} · ${splash.appearMs} мс · держать ${splash.holdMs} мс · плавность ${splash.smooth}/10${logoName ? ` · логотип ${logoName}: ${SPLASH_EFFECTS[splash.logoEffect].title}, ${splash.logoAppearMs}/${splash.logoHoldMs} мс` : ''}`], ['Анимация', `${settings.speed}% · пауза ${settings.pause} с · яркость ${settings.brightness}/10 · ${invert ? 'негатив' : 'обычный'} · ${settings.language}`], ['Звук', `${soundOn ? 'Включён' : 'Выключен'} · ${output} · громкость ${volume}/10 · звуки анимаций ${clipsOn ? 'вкл' : 'выкл'}`], ['Мелодии', TUNE_SLOTS.map(slot => `${slot.title}: ${tunes[slot.id] || 'тишина'}`).join('; ')]]
   return <><header><a className="brand" href="#top"><img src="assets/icon.png" alt=""/><span>Чубу<br/><small>Паулюкевичуса</small></span></a><nav><a href="#case">Корпус</a><a href="#emotions">Эмоции</a><a href="#settings">Настройки</a></nav><a className="header-cta" href="#order">Собрать своего ↗</a></header>
@@ -129,7 +155,7 @@ function App() {
   <section className="card" id="case"><div className="card-head"><div><span className="kicker">КОРПУС</span><h3>Выберите цвет</h3><p>Вращайте модель мышью или пальцем.</p></div><span className="pill">3D ПРОСМОТР</span></div><div className="case-layout"><Model color={colors.find(c => c[0] === color)?.[1] ?? '#202020'}/><div className="case-options"><span className="field-label">ЦВЕТ КОРПУСА</span><div id="colors" className="colors">{colors.map(([name,value]) => <button type="button" key={name} className="swatch" style={{background:value}} aria-label={name} aria-pressed={color === name} onClick={() => setColor(name)}/>)}</div><p className="color-name">{color}</p><div className="info">Цвет на экране может отличаться от цвета готового изделия.</div><span className="field-label">ВЫБРАННАЯ КОМПЛЕКТАЦИЯ</span><strong className="price" id="price">{['3 000 ₽','3 500 ₽','4 000 ₽'][packages.indexOf(settings.package)]}</strong><p className="muted">Стоимость доставки уточняется.</p></div></div></section>
   <section className="card" id="emotions"><div className="card-head"><div><span className="kicker">ХАРАКТЕР</span><h3>Эмоции Чубу</h3><p>Выберите анимации, которые будут на устройстве.</p></div><span className="pill" id="count">{selected.size} / 64</span></div><div className="controls"><input id="search" type="search" placeholder="Найти эмоцию" aria-label="Найти эмоцию" value={query} onChange={e => setQuery(e.target.value)}/><button type="button" className="subtle" id="all" onClick={() => setSelected(new Set(emotions.map(e => e.index)))}>Выбрать все</button><button type="button" className="subtle" id="none" onClick={() => { setSelected(new Set([9])); setSettings(s => ({...s,idle:actionOptions[0],intro:'Ничего',touch:actionOptions[0],double:actionOptions[0]})) }}>Снять выбор</button></div><div id="emotion-grid" className="emotion-grid">{emotions.filter(e => e.title.toLowerCase().includes(query.trim().toLowerCase())).map(e => <div className="emotion" key={e.index}><img src={gif(e.index)} loading="lazy" alt=""/><label className="emotion-label"><input type="checkbox" value={e.index} checked={selected.has(e.index)} disabled={e.index === 9} onChange={event => toggleEmotion(e.index,event.target.checked)}/>{e.title}</label>{clipKind(e.index) && <button type="button" className="clip-play" onClick={() => playClip(e.index, 'Усилитель I2S', true, volume)}>▶ {clipKind(e.index)}</button>}</div>)}</div><p className="muted">Обычные глазки остаются включёнными между эмоциями.</p></section>
   <ConfigurationPanels pins={pins} setPins={setPins} settings={settings} set={set} pickAction={pickAction} splash={splash} setTiming={setSplashTiming} logo={logo} logoName={logoName} setLogo={(data, name) => { setLogo(data); setLogoName(name) }} soundOn={soundOn} setSoundOn={setSoundOn} clipsOn={clipsOn} setClipsOn={setClipsOn} output={output} setOutput={setOutput} volume={volume} setVolume={setVolume} tunes={tunes} setTunes={setTunes} invert={invert} setInvert={setInvert} preview={preview} showAction={showAction} showSplash={showSplash} summary={summary}/>
-  <section className="card order" id="order"><div className="card-head"><div><span className="kicker">ПОСЛЕДНИЙ ШАГ</span><h3>Осталось познакомиться</h3><p>Оставьте контакты — обсудим детали и стоимость.</p></div></div><div className="fields">{([['Имя','name',80],['Телефон или Telegram','contact',120],['Город','city',80],['Комментарий','comment',300]] as const).map(([label,key,max]) => <label key={key}>{label}{key !== 'comment' && <span> *</span>}<input name={key} required={key !== 'comment'} maxLength={max} value={settings[key]} onChange={e => set(key,e.target.value)}/></label>)}</div><div className="submit-row"><p>Откроется Telegram с текстом заказа. Отправьте сообщение в чате.</p><button className="button" type="submit" disabled={tuneProblems}>Отправить заказ <span>↗</span></button></div>{orderError && <p role="alert" className="sound-error">{orderError}</p>}{tuneProblems && <p role="alert" className="sound-error">Исправьте ошибки в мелодиях, прежде чем отправить заказ.</p>}{orderUrl && <div id="result" role="status">Откройте Telegram и нажмите «Отправить». <a href={orderUrl} target="_blank" rel="noreferrer">Открыть заказ ↗</a></div>}</section>
+  <section className="card order" id="order"><div className="card-head"><div><span className="kicker">ПОСЛЕДНИЙ ШАГ</span><h3>Осталось познакомиться</h3><p>Оставьте контакты — обсудим детали и стоимость.</p></div></div><div className="fields">{([['Имя','name',80],['Телефон или Telegram','contact',120],['Город','city',80],['Комментарий','comment',300]] as const).map(([label,key,max]) => <label key={key}>{label}{key !== 'comment' && <span> *</span>}<input name={key} required={key !== 'comment'} maxLength={max} value={settings[key]} onChange={e => set(key,e.target.value)}/></label>)}</div><div className="submit-row"><p>Заказ скопируется, затем откроется Telegram. Вставьте текст в чат и отправьте сообщение.</p><button className="button" type="submit" disabled={tuneProblems}>Отправить заказ <span>↗</span></button></div>{orderError && <p role="alert" className="sound-error">{orderError}</p>}{tuneProblems && <p role="alert" className="sound-error">Исправьте ошибки в мелодиях, прежде чем отправить заказ.</p>}{orderText && <OrderDelivery text={orderText} status={copyStatus} copy={() => { void copyOrder(orderText) }}/>}</section>
   </form></section></main><footer className="wrap"><span>ЧУБУ ПАУЛЮКЕВИЧУСА</span><span>СДЕЛАНО С ХАРАКТЕРОМ ✳</span></footer></>
 }
 
