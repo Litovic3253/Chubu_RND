@@ -5,6 +5,7 @@ import catalog from './core/sounds.json'
 export type SoundChoice = 'Пищалка' | 'Усилитель I2S' | 'Без звука'
 export type SoundPins = { lrck: string; bck: string; din: string }
 export const initialTunes = [...DEFAULT_TUNES]
+export const SITE_TUNE_SLOTS = TUNE_SLOTS.filter(slot => !slot.simhub)
 let audioContext: AudioContext | undefined
 let clipAudio: HTMLAudioElement | undefined
 
@@ -73,10 +74,10 @@ export function SoundSettings(props: Props) {
     <p className="muted">Записанные звуки эмоций воспроизводятся через I2S. Пищалка воспроизводит мелодии событий и «Пинг-понг». Прослушивание в браузере приблизительно передаёт звучание пищалки.</p>
     {props.output === 'Усилитель I2S' && <div className="fields i2s-pins">{([['LRCK / WS', 'lrck'], ['BCK / SCK', 'bck'], ['DIN', 'din']] as const).map(([label, key]) => <label key={key}>Пин {label}<select value={props.pins[key]} onChange={event => props.setPins({...props.pins, [key]: event.target.value})}><option value="">Уточним при сборке</option>{[0,1,2,3,4,5,6,7,8,10,20,21].map(pin => <option key={pin} value={String(pin)}>GPIO{pin}</option>)}</select></label>)}</div>}
     <p className="muted">Формат мелодии: нота, длительность и пауза в миллисекундах. Например C5 90 10 E5 90 10 G5 200 0. Пустое поле означает тишину.</p>
-    <div className="tune-grid">{TUNE_SLOTS.map(slot => {
+    <div className="tune-grid">{SITE_TUNE_SLOTS.map(slot => {
       const text = props.tunes[slot.id] ?? ''
       const errors = melodyProblems(text)
-      return <div className="tune-card" key={slot.id}><strong>{slot.title}{slot.simhub ? ' · только SimHub' : ''}</strong><p className="muted">{slot.hint}</p><textarea aria-label={`Мелодия: ${slot.title}`} value={text} placeholder="Тишина" onChange={e => setTune(slot.id, e.target.value)}/>
+      return <div className="tune-card" key={slot.id}><strong>{slot.title}</strong><p className="muted">{slot.hint}</p><textarea aria-label={`Мелодия: ${slot.title}`} value={text} placeholder="Тишина" onChange={e => setTune(slot.id, e.target.value)}/>
         {errors.length > 0 && <div ref={lastError} role="alert" className="sound-error">{errors.join(' ')}</div>}
         <div className="presets"><button className="subtle" type="button" disabled={!!errors.length} onClick={() => playTune(text, true, props.volume)}>▶ Прослушать</button>{PRESETS.filter(p => p.slots.includes(slot.id)).map(p => <button type="button" className="preset" key={p.title} onClick={() => setTune(slot.id, p.text)}>{p.title}</button>)}<button className="preset" type="button" onClick={() => setTune(slot.id, '')}>Тишина</button></div></div>
     })}</div>
