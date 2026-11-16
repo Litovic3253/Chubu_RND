@@ -6,6 +6,7 @@
     "build": "tsc --noEmit && esbuild src/main.tsx --bundle --format=iife --target=es2020 --loader:.stl=dataurl --minify --outfile=app.js"
   },
   "dependencies": {
+    "fflate": "^0.8.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "three": "^0.170.0"

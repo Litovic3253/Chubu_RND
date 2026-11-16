@@ -8,6 +8,8 @@ import { DEFAULT_SPLASH, SPLASH_FONTS, SPLASH_EFFECTS, PRESETS, melodyProblems, 
 import { initialTunes, SITE_TUNE_SLOTS, playTune, playClip, clipKind, type SoundChoice, type SoundPins } from './sound'
 import { ConfigurationPanels } from './panels'
 import { LogoAttachment } from './LogoAttachment'
+import { createOrderLinks } from './orderLinks'
+import { OrderView } from './OrderView'
 
 const colors = [['Чёрный', '#202020'], ['Белый', '#e6e4df'], ['Красный', '#a52d2a'], ['Синий', '#28557d'], ['Серый', '#777778']] as const
 const packages = ['Базовая — 3000 ₽', 'С кнопкой и пищалкой — 3500 ₽', 'Максимальная — 4000 ₽']
@@ -79,7 +81,8 @@ function App() {
   const [logoFile, setLogoFile] = useState<File | null>(null)
   const [splashTiming, setSplashTiming] = useState({ appearMs: 1500, holdMs: 1500, smooth: 8, logoEffect: 0, logoAppearMs: 1500, logoHoldMs: 1500 })
   const [orderText, setOrderText] = useState('')
-  const [orderLink, setOrderLink] = useState('')
+  const [orderLinks, setOrderLinks] = useState<string[]>([])
+  const [orderMode, setOrderMode] = useState<'direct' | 'page' | 'parts'>('direct')
   const [orderError, setOrderError] = useState('')
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const nextEmotionIndex = useRef(0)
@@ -115,7 +118,7 @@ function App() {
   function submit(event: FormEvent) {
     event.preventDefault()
     setOrderError('')
-    setOrderLink('')
+    setOrderLinks([])
     if (tuneProblems) { document.querySelector('#sounds')?.scrollIntoView({ behavior: 'smooth' }); return }
     const assignedPins = Object.values(pins).filter(Boolean)
     if (output === 'Усилитель I2S' && new Set(assignedPins).size !== assignedPins.length) { setOrderError('Пины I2S не должны повторяться.'); return }
@@ -127,7 +130,7 @@ function App() {
       const preset = PRESETS.find(item => item.slots.includes(slot.id) && item.text === notes)
       return `- ${slot.title}: ${preset ? preset.title : `своя мелодия (${notes})`}`
     })
-    let message = [
+    const message = [
       'ЗАКАЗ ЧУБУ',
       '', 'КОНТАКТЫ',
       `- Имя: ${settings.name}`, `- Связь: ${settings.contact}`, `- Город: ${settings.city}`,
@@ -149,19 +152,11 @@ function App() {
       `- Логотип: ${logoName || 'не загружен'}`, `- Эффект логотипа: ${SPLASH_EFFECTS[splash.logoEffect].title}, ${splash.logoAppearMs} мс`, `- Логотип держать: ${splash.logoHoldMs} мс`,
       ...(logoName ? ['', 'Файл логотипа прикреплю отдельным сообщением.'] : [])
     ].join('\n')
-    let link = `https://t.me/LastJoudas?text=${encodeURIComponent(message)}`
-    if (link.length > 3950 && included && excluded) {
-      const chosenIds = emotions.filter(e => selected.has(e.index)).map(e => e.index + 1).join(', ')
-      const omittedIds = emotions.filter(e => !selected.has(e.index)).map(e => e.index + 1).join(', ')
-      const compactList = chosenIds.length <= omittedIds.length + 11 ? `Номера на сайте: ${chosenIds}` : `Все, кроме номеров: ${omittedIds}`
-      message = message.replace(`\n${list}\n`, `\n${compactList}\n`)
-      link = `https://t.me/LastJoudas?text=${encodeURIComponent(message)}`
-    }
-    if ([...message].length > 4096) { setOrderError('Заказ длиннее ограничения Telegram. Сократите пользовательские мелодии или комментарий.'); return }
-    if (link.length > 3950) { setOrderError('Заказ слишком длинный для ссылки Telegram. Сократите собственные мелодии или комментарий и попробуйте снова.'); setOrderLink(''); return }
+    const result = createOrderLinks(message, window.location.href)
     setOrderText(message)
-    setOrderLink(link)
-    if (!logoFile) window.open(link, '_blank', 'noopener,noreferrer')
+    setOrderLinks(result.links)
+    setOrderMode(result.mode)
+    if (!logoFile && result.links.length === 1) window.open(result.links[0], '_blank', 'noopener,noreferrer')
   }
   const summary = [['Комплектация', settings.package], ['Экран', `OLED 0,96″, ${settings.display}`], ['Корпус', color], ['Эмоции', selected.size === 64 ? 'Все 64' : emotions.filter(e => selected.has(e.index)).map(e => e.title).join(', ')], ['В покое', settings.idle], ['При включении', settings.intro], ['Касание', settings.touch], ['Двойное касание', settings.double], ['Заставка', `${settings.splash} · ${settings.word} · ${settings.font} · ${settings.effect} · ${splash.appearMs} мс · держать ${splash.holdMs} мс · плавность ${splash.smooth}/10${logoName ? ` · логотип ${logoName}: ${SPLASH_EFFECTS[splash.logoEffect].title}, ${splash.logoAppearMs}/${splash.logoHoldMs} мс` : ''}`], ['Анимация', `${settings.speed}% · пауза ${settings.pause} с · яркость ${settings.brightness}/10 · ${invert ? 'негатив' : 'обычный'} · ${settings.language}`], ['Звук', `${soundOn ? 'Включён' : 'Выключен'} · ${output} · громкость ${volume}/10 · звуки анимаций ${clipsOn ? 'вкл' : 'выкл'}`], ['Мелодии', SITE_TUNE_SLOTS.map(slot => `${slot.title}: ${tunes[slot.id] || 'тишина'}`).join('; ')]]
   return <><header><a className="brand" href="#top"><img src="assets/icon.png" alt=""/><span>Чубу<br/><small>Паулюкевичуса</small></span></a><nav><a href="#case">Корпус</a><a href="#emotions">Эмоции</a><a href="#settings">Настройки</a></nav><a className="header-cta" href="#order">Собрать своего ↗</a></header>
@@ -170,9 +165,19 @@ function App() {
   <section className="card" id="package"><div className="card-head"><div><span className="kicker">КОМПЛЕКТАЦИЯ</span><h3>Выберите своего Чубу</h3></div></div><div className="packages">{packages.map((p,i) => <label className="package" key={p}><input type="radio" name="package" value={p} checked={settings.package === p} onChange={() => set('package',p)}/><span><strong>{['Базовая','С кнопкой и пищалкой','Максимальная'][i]}</strong><small>{['Устройство в базовой комплектации','Базовая комплектация + кнопка и пищалка','Кнопка, пищалка, вибромотор и светодиодная полоска'][i]}</small><b>{['3 000 ₽','3 500 ₽','4 000 ₽'][i]}</b></span></label>)}</div></section>
   <section className="card" id="case"><div className="card-head"><div><span className="kicker">КОРПУС</span><h3>Выберите цвет</h3><p>Вращайте модель мышью или пальцем.</p></div><span className="pill">3D ПРОСМОТР</span></div><div className="case-layout"><Model color={colors.find(c => c[0] === color)?.[1] ?? '#202020'}/><div className="case-options"><span className="field-label">ЦВЕТ КОРПУСА</span><div id="colors" className="colors">{colors.map(([name,value]) => <button type="button" key={name} className="swatch" style={{background:value}} aria-label={name} aria-pressed={color === name} onClick={() => setColor(name)}/>)}</div><p className="color-name">{color}</p><div className="info">Цвет на экране может отличаться от цвета готового изделия.</div><span className="field-label">ВЫБРАННАЯ КОМПЛЕКТАЦИЯ</span><strong className="price" id="price">{['3 000 ₽','3 500 ₽','4 000 ₽'][packages.indexOf(settings.package)]}</strong><p className="muted">Стоимость доставки уточняется.</p></div></div></section>
   <section className="card" id="emotions"><div className="card-head"><div><span className="kicker">ХАРАКТЕР</span><h3>Эмоции Чубу</h3><p>Выберите анимации, которые будут на устройстве.</p></div><span className="pill" id="count">{selected.size} / 64</span></div><div className="controls"><input id="search" type="search" placeholder="Найти эмоцию" aria-label="Найти эмоцию" value={query} onChange={e => setQuery(e.target.value)}/><button type="button" className="subtle" id="all" onClick={() => setSelected(new Set(emotions.map(e => e.index)))}>Выбрать все</button><button type="button" className="subtle" id="none" onClick={() => { setSelected(new Set([9])); setSettings(s => ({...s,idle:actionOptions[0],intro:'Ничего',touch:actionOptions[0],double:actionOptions[0]})) }}>Снять выбор</button></div><div id="emotion-grid" className="emotion-grid">{emotions.filter(e => e.title.toLowerCase().includes(query.trim().toLowerCase())).map(e => <div className="emotion" key={e.index}><img src={gif(e.index)} loading="lazy" alt=""/><label className="emotion-label"><input type="checkbox" value={e.index} checked={selected.has(e.index)} disabled={e.index === 9} onChange={event => toggleEmotion(e.index,event.target.checked)}/>{e.index + 1}. {e.title}</label>{clipKind(e.index) && <button type="button" className="clip-play" onClick={() => playClip(e.index, 'Усилитель I2S', true, volume)}>▶ {clipKind(e.index)}</button>}</div>)}</div><p className="muted">Обычные глазки остаются включёнными между эмоциями.</p></section>
-  <ConfigurationPanels pins={pins} setPins={setPins} settings={settings} set={set} pickAction={pickAction} splash={splash} setTiming={setSplashTiming} logo={logo} logoName={logoName} setLogo={(data, name, file) => { setLogo(data); setLogoName(name); setLogoFile(file); setOrderLink('') }} soundOn={soundOn} setSoundOn={setSoundOn} clipsOn={clipsOn} setClipsOn={setClipsOn} output={output} setOutput={setOutput} volume={volume} setVolume={setVolume} tunes={tunes} setTunes={setTunes} invert={invert} setInvert={setInvert} preview={preview} showAction={showAction} showSplash={showSplash} summary={summary}/>
-  <section className="card order" id="order"><div className="card-head"><div><span className="kicker">ПОСЛЕДНИЙ ШАГ</span><h3>Осталось познакомиться</h3><p>Оставьте контакты — обсудим детали и стоимость.</p></div></div><div className="fields">{([['Имя','name',80],['Телефон или Telegram','contact',120],['Город','city',80],['Комментарий','comment',300]] as const).map(([label,key,max]) => <label key={key}>{label}{key !== 'comment' && <span> *</span>}<input name={key} required={key !== 'comment'} maxLength={max} value={settings[key]} onChange={e => set(key,e.target.value)}/></label>)}</div><div className="submit-row"><p>{logoFile ? 'Сначала подготовьте заказ, затем отправьте текст и картинку логотипа в Telegram.' : 'Откроется Telegram с готовым текстом заказа. Проверьте его и нажмите «Отправить».'}</p><button className="button" type="submit" disabled={tuneProblems}>{logoFile ? 'Подготовить заказ' : 'Отправить заказ'} <span>↗</span></button></div>{orderError && <p role="alert" className="sound-error">{orderError}</p>}{tuneProblems && <p role="alert" className="sound-error">Исправьте ошибки в мелодиях, прежде чем отправить заказ.</p>}{orderLink && <div id="result" className="order-delivery" role="status"><strong>{logoFile ? '1. Отправьте заказ' : 'Заказ подготовлен'}</strong><p>Откройте заказ, проверьте текст в Telegram и нажмите «Отправить».</p><a className="subtle" href={orderLink} target="_blank" rel="noopener noreferrer">Открыть заказ в Telegram ↗</a>{logoFile && <LogoAttachment file={logoFile}/>}<label>Текст заказа<textarea readOnly value={orderText}/></label></div>}</section>
+  <ConfigurationPanels pins={pins} setPins={setPins} settings={settings} set={set} pickAction={pickAction} splash={splash} setTiming={setSplashTiming} logo={logo} logoName={logoName} setLogo={(data, name, file) => { setLogo(data); setLogoName(name); setLogoFile(file); setOrderLinks([]) }} soundOn={soundOn} setSoundOn={setSoundOn} clipsOn={clipsOn} setClipsOn={setClipsOn} output={output} setOutput={setOutput} volume={volume} setVolume={setVolume} tunes={tunes} setTunes={setTunes} invert={invert} setInvert={setInvert} preview={preview} showAction={showAction} showSplash={showSplash} summary={summary}/>
+  <section className="card order" id="order"><div className="card-head"><div><span className="kicker">ПОСЛЕДНИЙ ШАГ</span><h3>Осталось познакомиться</h3><p>Оставьте контакты — обсудим детали и стоимость.</p></div></div><div className="fields">{([['Имя','name',80],['Телефон или Telegram','contact',120],['Город','city',80],['Комментарий','comment',300]] as const).map(([label,key,max]) => <label key={key}>{label}{key !== 'comment' && <span> *</span>}<input name={key} required={key !== 'comment'} maxLength={max} value={settings[key]} onChange={e => set(key,e.target.value)}/></label>)}</div><div className="submit-row"><p>{logoFile ? 'Сначала подготовьте заказ, затем отправьте текст и картинку логотипа в Telegram.' : 'Откроется Telegram с готовым текстом заказа. Проверьте его и нажмите «Отправить».'}</p><button className="button" type="submit" disabled={tuneProblems}>{logoFile ? 'Подготовить заказ' : 'Отправить заказ'} <span>↗</span></button></div>{orderError && <p role="alert" className="sound-error">{orderError}</p>}{tuneProblems && <p role="alert" className="sound-error">Исправьте ошибки в мелодиях, прежде чем отправить заказ.</p>}{orderLinks.length > 0 && <div id="result" className="order-delivery" role="status"><strong>{logoFile ? '1. Отправьте заказ' : 'Заказ подготовлен'}</strong><p>{orderMode === 'parts' ? 'Отправьте каждую часть заказа по порядку: откройте ссылку и нажмите «Отправить» в Telegram.' : orderMode === 'page' ? 'Откройте Telegram и отправьте сообщение со ссылкой на полный заказ. Детали заказа можно проверить ниже.' : 'Откройте заказ, проверьте текст в Telegram и нажмите «Отправить».'}</p>{orderLinks.map((link, i) => <a className="subtle" key={link} href={link} target="_blank" rel="noopener noreferrer" style={{display: 'inline-flex', marginRight: 8, marginBottom: 8}}>{orderLinks.length > 1 ? `Отправить часть ${i + 1} из ${orderLinks.length} ↗` : 'Открыть заказ в Telegram ↗'}</a>)}{logoFile && <LogoAttachment file={logoFile}/>}<label>Текст заказа<textarea readOnly value={orderText}/></label></div>}</section>
   </form></section></main><footer className="wrap"><span>ЧУБУ ПАУЛЮКЕВИЧУСА</span><span>СДЕЛАНО С ХАРАКТЕРОМ ✳</span></footer></>
 }
 
-createRoot(document.getElementById('root')!).render(<App />)
+function Router() {
+  const [hash, setHash] = useState(window.location.hash)
+  useEffect(() => {
+    const update = () => setHash(window.location.hash)
+    window.addEventListener('hashchange', update)
+    return () => window.removeEventListener('hashchange', update)
+  }, [])
+  const encodedOrder = new URLSearchParams(hash.slice(1)).get('order')
+  return encodedOrder ? <OrderView encoded={encodedOrder}/> : <App />
+}
+createRoot(document.getElementById('root')!).render(<Router />)
