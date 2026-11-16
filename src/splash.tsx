@@ -66,5 +66,5 @@ export function LogoUpload({ onPick, filename }: { onPick: (data: Uint8Array | n
     img.src = url
   }
   return <div><label>Логотип — PNG, JPG или WEBP<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e => load(e.target.files?.[0])}/></label>
-    <p className="muted">{filename ? `Выбран ${filename}. После оформления заказа отправьте файл в Telegram по инструкции на странице.` : 'Если нужен свой логотип, выберите файл. После оформления заказа отправьте его в Telegram.'}</p></div>
+    <p className="muted">{filename ? `Выбран ${filename}. Изображение будет отправлено вместе с заказом.` : 'Если нужен свой логотип, выберите файл — мы получим его вместе с заказом.'}</p></div>
 }

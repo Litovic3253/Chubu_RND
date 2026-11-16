@@ -1,5 +1,4 @@
-// Set to the deployed Worker URL only after its secrets and recipient are configured.
-export const ORDER_API_URL = ''
+export const ORDER_API_URL = 'https://chubu-orders.mpavlukevic.workers.dev/order'
 
 export async function sendOrder(message: string, image: File | null): Promise<void> {
   const form = new FormData()
