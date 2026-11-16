@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { createRoot } from 'react-dom/client'
-import { Box3, Color, DirectionalLight, Group, HemisphereLight, Mesh, MeshStandardMaterial, PerspectiveCamera, Scene, Vector3, WebGLRenderer, type BufferGeometry } from 'three'
+import { Box3, Color, DirectionalLight, HemisphereLight, Mesh, MeshStandardMaterial, PerspectiveCamera, Scene, Vector3, WebGLRenderer, type BufferGeometry } from 'three'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import emotions from '../assets/emotions.json'
@@ -21,7 +21,7 @@ const gif = (id: number) => `./assets/dasai/${String(id).padStart(2, '0')}-${emo
 function Model({ color }: { color: string }) {
   const host = useRef<HTMLDivElement>(null)
   const material = useRef<MeshStandardMaterial | null>(null)
-  const [error, setError] = useState('Загрузка трёх деталей…')
+  const [error, setError] = useState('Загрузка модели…')
   useEffect(() => {
     const container = host.current
     if (!container) return
@@ -39,17 +39,11 @@ function Model({ color }: { color: string }) {
       container.prepend(renderer.domElement)
       material.current = new MeshStandardMaterial({ color: new Color(color), roughness: .55, metalness: .05 })
       const loader = new STLLoader()
-      const loaded = await Promise.all(['bottom', 'middle', 'top'].map(part => loader.loadAsync(`./assets/${part}.stl`)))
-      if (cancelled) { loaded.forEach(part => part.dispose()); return }
-      renderer.domElement.dataset.parts = String(loaded.length)
-      const model = new Group()
-      for (const [i, geometry] of loaded.entries()) {
-        geometries.push(geometry); geometry.computeVertexNormals(); geometry.computeBoundingBox()
-        const bounds = geometry.boundingBox!
-        geometry.translate(-(bounds.min.x + bounds.max.x) / 2, -(bounds.min.y + bounds.max.y) / 2, -bounds.min.z + [0, 3, 24][i])
-        model.add(new Mesh(geometry, material.current))
-      }
-      const bounds = new Box3().setFromObject(model); const center = bounds.getCenter(new Vector3()); model.position.sub(center); scene.add(model)
+      const geometry = await loader.loadAsync('./assets/chubu.stl')
+      if (cancelled) { geometry.dispose(); return }
+      geometries.push(geometry); geometry.computeVertexNormals(); geometry.center()
+      const model = new Mesh(geometry, material.current); scene.add(model)
+      const bounds = new Box3().setFromObject(model)
       const size = bounds.getSize(new Vector3()); const max = Math.max(size.x, size.y, size.z)
       camera.up.set(0, 0, 1); camera.position.set(max * 1.3, -max * 2.1, max * 1.5); camera.near = max / 1000; camera.far = max * 100; camera.updateProjectionMatrix()
       scene.add(new HemisphereLight(0xffffff, 0x655043, 2.3)); const light = new DirectionalLight(0xffffff, 2.3); light.position.set(max, max * 2, max * 2); scene.add(light)
@@ -58,7 +52,7 @@ function Model({ color }: { color: string }) {
       observer = new ResizeObserver(resize); observer.observe(container); resize()
       const tick = () => { controls?.update(); renderer?.render(scene, camera); frame = requestAnimationFrame(tick) }; tick()
       setError('')
-    } catch { setError('Не удалось загрузить детали. Обновите страницу и проверьте соединение.') } }
+    } catch { setError('Не удалось загрузить модель. Обновите страницу и проверьте соединение.') } }
     void load()
     return () => { cancelled = true; cancelAnimationFrame(frame); observer?.disconnect(); controls?.dispose(); geometries.forEach(geometry => geometry.dispose()); material.current?.dispose(); renderer?.dispose(); renderer?.domElement.remove() }
   }, [])
@@ -132,7 +126,7 @@ function App() {
   <main id="top"><section className="hero wrap"><div><div className="eyebrow"><span className="dot"/>ВАШ ПОПУТЧИК</div><h1>Маленький<br/>характер.<br/><em>Большие эмоции.</em></h1><p>Чубу оживляет приборную панель. Выберите эмоции, заставку, звук и цвет корпуса — соберём устройство под вас.</p><div className="hero-actions"><a className="button" href="#case">Собрать Чубу <span>↗</span></a><a className="text-link" href="#emotions">Посмотреть эмоции ↓</a></div><div className="facts"><span>64 анимации</span><span>Настройка под вас</span><span>Сделано с характером</span></div></div><div className="hero-display"><div className="screen-label">CHUBU / DISPLAY <span>● ONLINE</span></div><div className="screen"><img src={gif(9)} alt="Анимированные глаза Чубу"/></div><div className="display-bottom"><span>НАЖМИ. УЛЫБНИСЬ. ПОЕХАЛИ.</span><b>✳</b></div></div></section>
   <section className="config wrap"><div className="section-intro"><div><div className="eyebrow">КОНФИГУРАТОР</div><h2>Ваш Чубу,<br/><em>ваши правила.</em></h2></div><p>Выберите детали, а в конце проверьте заказ.</p></div><form id="config" onSubmit={submit}>
   <section className="card" id="package"><div className="card-head"><div><span className="kicker">КОМПЛЕКТАЦИЯ</span><h3>Выберите своего Чубу</h3></div></div><div className="packages">{packages.map((p,i) => <label className="package" key={p}><input type="radio" name="package" value={p} checked={settings.package === p} onChange={() => set('package',p)}/><span><strong>{['Базовая','С кнопкой и пищалкой','Максимальная'][i]}</strong><small>{['Устройство в базовой комплектации','Базовая комплектация + кнопка и пищалка','Кнопка, пищалка, вибромотор и светодиодная полоска'][i]}</small><b>{['3 000 ₽','3 500 ₽','4 000 ₽'][i]}</b></span></label>)}</div></section>
-  <section className="card" id="case"><div className="card-head"><div><span className="kicker">КОРПУС</span><h3>Выберите цвет</h3><p>Вращайте модель мышью или пальцем. Расположение деталей приблизительное.</p></div><span className="pill">3D ПРОСМОТР</span></div><div className="case-layout"><Model color={colors.find(c => c[0] === color)?.[1] ?? '#202020'}/><div className="case-options"><span className="field-label">ЦВЕТ КОРПУСА</span><div id="colors" className="colors">{colors.map(([name,value]) => <button type="button" key={name} className="swatch" style={{background:value}} aria-label={name} aria-pressed={color === name} onClick={() => setColor(name)}/>)}</div><p className="color-name">{color}</p><div className="info">Цвет на экране может отличаться от цвета готового изделия.</div><span className="field-label">ВЫБРАННАЯ КОМПЛЕКТАЦИЯ</span><strong className="price" id="price">{['3 000 ₽','3 500 ₽','4 000 ₽'][packages.indexOf(settings.package)]}</strong><p className="muted">Стоимость доставки уточняется.</p></div></div></section>
+  <section className="card" id="case"><div className="card-head"><div><span className="kicker">КОРПУС</span><h3>Выберите цвет</h3><p>Вращайте модель мышью или пальцем.</p></div><span className="pill">3D ПРОСМОТР</span></div><div className="case-layout"><Model color={colors.find(c => c[0] === color)?.[1] ?? '#202020'}/><div className="case-options"><span className="field-label">ЦВЕТ КОРПУСА</span><div id="colors" className="colors">{colors.map(([name,value]) => <button type="button" key={name} className="swatch" style={{background:value}} aria-label={name} aria-pressed={color === name} onClick={() => setColor(name)}/>)}</div><p className="color-name">{color}</p><div className="info">Цвет на экране может отличаться от цвета готового изделия.</div><span className="field-label">ВЫБРАННАЯ КОМПЛЕКТАЦИЯ</span><strong className="price" id="price">{['3 000 ₽','3 500 ₽','4 000 ₽'][packages.indexOf(settings.package)]}</strong><p className="muted">Стоимость доставки уточняется.</p></div></div></section>
   <section className="card" id="emotions"><div className="card-head"><div><span className="kicker">ХАРАКТЕР</span><h3>Эмоции Чубу</h3><p>Выберите анимации, которые будут на устройстве.</p></div><span className="pill" id="count">{selected.size} / 64</span></div><div className="controls"><input id="search" type="search" placeholder="Найти эмоцию" aria-label="Найти эмоцию" value={query} onChange={e => setQuery(e.target.value)}/><button type="button" className="subtle" id="all" onClick={() => setSelected(new Set(emotions.map(e => e.index)))}>Выбрать все</button><button type="button" className="subtle" id="none" onClick={() => { setSelected(new Set([9])); setSettings(s => ({...s,idle:actionOptions[0],intro:'Ничего',touch:actionOptions[0],double:actionOptions[0]})) }}>Снять выбор</button></div><div id="emotion-grid" className="emotion-grid">{emotions.filter(e => e.title.toLowerCase().includes(query.trim().toLowerCase())).map(e => <div className="emotion" key={e.index}><img src={gif(e.index)} loading="lazy" alt=""/><label className="emotion-label"><input type="checkbox" value={e.index} checked={selected.has(e.index)} disabled={e.index === 9} onChange={event => toggleEmotion(e.index,event.target.checked)}/>{e.title}</label>{clipKind(e.index) && <button type="button" className="clip-play" onClick={() => playClip(e.index, 'Усилитель I2S', true, volume)}>▶ {clipKind(e.index)}</button>}</div>)}</div><p className="muted">Обычные глазки остаются включёнными между эмоциями.</p></section>
   <ConfigurationPanels pins={pins} setPins={setPins} settings={settings} set={set} pickAction={pickAction} splash={splash} setTiming={setSplashTiming} logo={logo} logoName={logoName} setLogo={(data, name) => { setLogo(data); setLogoName(name) }} soundOn={soundOn} setSoundOn={setSoundOn} clipsOn={clipsOn} setClipsOn={setClipsOn} output={output} setOutput={setOutput} volume={volume} setVolume={setVolume} tunes={tunes} setTunes={setTunes} invert={invert} setInvert={setInvert} preview={preview} showAction={showAction} showSplash={showSplash} summary={summary}/>
   <section className="card order" id="order"><div className="card-head"><div><span className="kicker">ПОСЛЕДНИЙ ШАГ</span><h3>Осталось познакомиться</h3><p>Оставьте контакты — обсудим детали и стоимость.</p></div></div><div className="fields">{([['Имя','name',80],['Телефон или Telegram','contact',120],['Город','city',80],['Комментарий','comment',300]] as const).map(([label,key,max]) => <label key={key}>{label}{key !== 'comment' && <span> *</span>}<input name={key} required={key !== 'comment'} maxLength={max} value={settings[key]} onChange={e => set(key,e.target.value)}/></label>)}</div><div className="submit-row"><p>Откроется Telegram с текстом заказа. Отправьте сообщение в чате.</p><button className="button" type="submit" disabled={tuneProblems}>Отправить заказ <span>↗</span></button></div>{orderError && <p role="alert" className="sound-error">{orderError}</p>}{tuneProblems && <p role="alert" className="sound-error">Исправьте ошибки в мелодиях, прежде чем отправить заказ.</p>}{orderUrl && <div id="result" role="status">Откройте Telegram и нажмите «Отправить». <a href={orderUrl} target="_blank" rel="noreferrer">Открыть заказ ↗</a></div>}</section>
