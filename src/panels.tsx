@@ -10,7 +10,7 @@ type ActionKey = 'idle' | 'intro' | 'touch' | 'double'
 type Preview = { id: number; message: string; splash: boolean; seq: number }
 interface Props {
   settings: Settings; set: (key: Key, value: string) => void; pickAction: (key: ActionKey, value: string) => void
-  splash: SplashSettings; setTiming: Dispatch<SetStateAction<Timing>>; logo: Uint8Array | null; logoName: string; setLogo: (logo: Uint8Array | null, name: string) => void
+  splash: SplashSettings; setTiming: Dispatch<SetStateAction<Timing>>; logo: Uint8Array | null; logoName: string; setLogo: (logo: Uint8Array | null, name: string, file: File | null) => void
   soundOn: boolean; setSoundOn: (value: boolean) => void; clipsOn: boolean; setClipsOn: (value: boolean) => void
   output: SoundChoice; setOutput: (value: SoundChoice) => void; volume: number; setVolume: (value: number) => void
   tunes: string[]; setTunes: (value: string[]) => void; invert: boolean; setInvert: (value: boolean) => void

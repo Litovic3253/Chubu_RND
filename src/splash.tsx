@@ -45,9 +45,9 @@ export function FontChoices({ splash, onPick }: { splash: SplashSettings; onPick
     </button>)}</div>
 }
 
-export function LogoUpload({ onPick, filename }: { onPick: (data: Uint8Array | null, name: string) => void; filename: string }) {
+export function LogoUpload({ onPick, filename }: { onPick: (data: Uint8Array | null, name: string, file: File | null) => void; filename: string }) {
   function load(file?: File) {
-    if (!file) { onPick(null, ''); return }
+    if (!file) { onPick(null, '', null); return }
     const url = URL.createObjectURL(file)
     const img = new Image()
     img.onload = () => {
@@ -58,13 +58,13 @@ export function LogoUpload({ onPick, filename }: { onPick: (data: Uint8Array | n
         const width = img.width * scale, height = img.height * scale
         context.drawImage(img, (W - width) / 2, (H - height) / 2, width, height)
         const pixels = context.getImageData(0, 0, W, H).data
-        onPick(logoFromRgba(pixels, { ink: guessLogoInk(pixels), threshold: 128, dither: false }), file.name)
+        onPick(logoFromRgba(pixels, { ink: guessLogoInk(pixels), threshold: 128, dither: false }), file.name, file)
       }
       URL.revokeObjectURL(url)
     }
-    img.onerror = () => { URL.revokeObjectURL(url); onPick(null, '') }
+    img.onerror = () => { URL.revokeObjectURL(url); onPick(null, '', null) }
     img.src = url
   }
   return <div><label>Логотип — PNG, JPG или WEBP<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e => load(e.target.files?.[0])}/></label>
-    <p className="muted">{filename ? `Выбран ${filename}. Прикрепите тот же файл к сообщению в Telegram.` : 'Если нужен свой логотип, выберите файл. После формирования заказа прикрепите его к сообщению в Telegram.'}</p></div>
+    <p className="muted">{filename ? `Выбран ${filename}. После оформления заказа отправьте файл в Telegram по инструкции на странице.` : 'Если нужен свой логотип, выберите файл. После оформления заказа отправьте его в Telegram.'}</p></div>
 }
