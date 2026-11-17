@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { createRoot } from 'react-dom/client'
-import { Box3, Color, DirectionalLight, HemisphereLight, Mesh, MeshStandardMaterial, PerspectiveCamera, Scene, Vector3, WebGLRenderer, type BufferGeometry } from 'three'
+import { AdditiveBlending, Box3, Color, DirectionalLight, DoubleSide, HemisphereLight, Mesh, MeshBasicMaterial, MeshStandardMaterial, PerspectiveCamera, PointLight, Scene, Vector3, WebGLRenderer, type BufferGeometry } from 'three'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import emotions from '../assets/emotions.json'
@@ -24,17 +24,27 @@ export type Settings = typeof initial
 export type Key = keyof Settings
 const gif = (id: number) => `./assets/dasai/${String(id).padStart(2, '0')}-${emotions[id].name}.gif`
 
-function Model({ color }: { color: string }) {
+function Model({ color, ledColor, maximum }: { color: string; ledColor: string; maximum: boolean }) {
   const host = useRef<HTMLDivElement>(null)
-  const material = useRef<MeshStandardMaterial | null>(null)
+  const bodyMaterial = useRef<MeshStandardMaterial | null>(null)
+  const ledMaterial = useRef<MeshStandardMaterial | null>(null)
+  const stripGlow = useRef<MeshBasicMaterial | null>(null)
+  const stripLights = useRef<PointLight[]>([])
+  const latest = useRef({ color, ledColor })
+  latest.current = { color, ledColor }
   const [error, setError] = useState('Загрузка модели…')
   useEffect(() => {
     const container = host.current
     if (!container) return
+    setError('Загрузка модели…')
     let renderer: WebGLRenderer | undefined
     const geometries: BufferGeometry[] = []
     let controls: OrbitControls | undefined
     let observer: ResizeObserver | undefined
+    let body: MeshStandardMaterial | undefined
+    let led: MeshStandardMaterial | undefined
+    let glow: MeshBasicMaterial | undefined
+    const lights: PointLight[] = []
     let frame = 0
     let cancelled = false
     const load = async () => { try {
@@ -43,26 +53,58 @@ function Model({ color }: { color: string }) {
       renderer = new WebGLRenderer({ antialias: true, alpha: true })
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
       container.prepend(renderer.domElement)
-      material.current = new MeshStandardMaterial({ color: new Color(color), roughness: .55, metalness: .05 })
       const loader = new STLLoader()
-      const geometry = await loader.loadAsync('./assets/chubu.stl')
-      if (cancelled) { geometry.dispose(); return }
-      geometries.push(geometry); geometry.computeVertexNormals(); geometry.center()
-      const model = new Mesh(geometry, material.current); scene.add(model)
+      const [geometry, strip] = await Promise.all([
+        loader.loadAsync(maximum ? './assets/chubu-v2-body.stl' : './assets/chubu.stl'),
+        maximum ? loader.loadAsync('./assets/led-strip.stl') : Promise.resolve(null)
+      ])
+      if (cancelled) { geometry.dispose(); strip?.dispose(); return }
+      geometries.push(geometry)
+      geometry.computeBoundingBox()
+      const center = geometry.boundingBox!.getCenter(new Vector3())
+      geometry.translate(-center.x, -center.y, -center.z)
+      geometry.computeVertexNormals()
+      body = new MeshStandardMaterial({ color: new Color(latest.current.color), roughness: .55, metalness: .05 })
+      bodyMaterial.current = body
+      const model = new Mesh(geometry, body); scene.add(model)
+      if (strip) {
+        geometries.push(strip)
+        strip.translate(-center.x, -center.y, -center.z)
+        strip.computeVertexNormals()
+        led = new MeshStandardMaterial({ color: latest.current.ledColor, emissive: latest.current.ledColor, emissiveIntensity: 2.34, roughness: .35 })
+        ledMaterial.current = led
+        scene.add(new Mesh(strip, led))
+        strip.computeBoundingBox()
+        const stripCenter = strip.boundingBox!.getCenter(new Vector3())
+        const glowGeometry = strip.clone()
+        geometries.push(glowGeometry)
+        glowGeometry.translate(-stripCenter.x, -stripCenter.y, -stripCenter.z)
+        glow = new MeshBasicMaterial({ color: latest.current.ledColor, transparent: true, opacity: .18, blending: AdditiveBlending, side: DoubleSide, depthWrite: false })
+        stripGlow.current = glow
+        const glowMesh = new Mesh(glowGeometry, glow)
+        glowMesh.position.copy(stripCenter); glowMesh.scale.set(1.015, 1.8, 1.8); scene.add(glowMesh)
+        for (const offset of [-12, 0, 12]) {
+          const light = new PointLight(latest.current.ledColor, 18, 22, 2)
+          light.position.set(stripCenter.x + offset, strip.boundingBox!.max.y + .8, stripCenter.z)
+          lights.push(light); scene.add(light)
+        }
+        stripLights.current = lights
+      }
       const bounds = new Box3().setFromObject(model)
       const size = bounds.getSize(new Vector3()); const max = Math.max(size.x, size.y, size.z)
-      camera.up.set(0, 0, 1); camera.position.set(max * 1.3, -max * 2.1, max * 1.5); camera.near = max / 1000; camera.far = max * 100; camera.updateProjectionMatrix()
+      camera.up.set(0, 0, 1); camera.position.set(max * (maximum ? 1 : 1.3), max * (maximum ? 1.6 : -2.1), max * (maximum ? 1.05 : 1.5)); camera.near = max / 1000; camera.far = max * 100; camera.updateProjectionMatrix()
       scene.add(new HemisphereLight(0xffffff, 0x655043, 2.3)); const light = new DirectionalLight(0xffffff, 2.3); light.position.set(max, max * 2, max * 2); scene.add(light)
       controls = new OrbitControls(camera, renderer.domElement); controls.enableDamping = true; controls.minDistance = max * .8; controls.maxDistance = max * 6
-      const resize = () => { const w = container.clientWidth, h = container.clientHeight; camera.aspect = w / h; camera.updateProjectionMatrix(); renderer?.setSize(w, h) }
+      const resize = () => { const w = container.clientWidth, h = container.clientHeight; if (!w || !h) return; camera.aspect = w / h; camera.updateProjectionMatrix(); renderer?.setSize(w, h) }
       observer = new ResizeObserver(resize); observer.observe(container); resize()
       const tick = () => { controls?.update(); renderer?.render(scene, camera); frame = requestAnimationFrame(tick) }; tick()
       setError('')
-    } catch { setError('Не удалось загрузить модель. Обновите страницу и проверьте соединение.') } }
+    } catch { if (!cancelled) setError('Не удалось загрузить модель. Обновите страницу и проверьте соединение.') } }
     void load()
-    return () => { cancelled = true; cancelAnimationFrame(frame); observer?.disconnect(); controls?.dispose(); geometries.forEach(geometry => geometry.dispose()); material.current?.dispose(); renderer?.dispose(); renderer?.domElement.remove() }
-  }, [])
-  useEffect(() => { material.current?.color.set(color) }, [color])
+    return () => { cancelled = true; cancelAnimationFrame(frame); observer?.disconnect(); controls?.dispose(); geometries.forEach(geometry => geometry.dispose()); body?.dispose(); led?.dispose(); glow?.dispose(); if (bodyMaterial.current === body) bodyMaterial.current = null; if (ledMaterial.current === led) ledMaterial.current = null; if (stripGlow.current === glow) stripGlow.current = null; if (stripLights.current === lights) stripLights.current = []; renderer?.dispose(); renderer?.domElement.remove() }
+  }, [maximum])
+  useEffect(() => { bodyMaterial.current?.color.set(color) }, [color])
+  useEffect(() => { ledMaterial.current?.color.set(ledColor); ledMaterial.current?.emissive.set(ledColor); stripGlow.current?.color.set(ledColor); stripLights.current.forEach(light => light.color.set(ledColor)) }, [ledColor])
   return <div className="viewer" id="viewer" ref={host}><div className="viewer-status" id="model-status">{error}</div><div className="viewer-hint">↺ ПОВЕРНУТЬ · ПРОКРУТКА — МАСШТАБ</div></div>
 }
 
@@ -179,7 +221,7 @@ function App() {
   <main id="top"><section className="hero wrap"><div><div className="eyebrow"><span className="dot"/>ВАШ ПОПУТЧИК</div><h1>Маленький<br/>характер.<br/><em>Большие эмоции.</em></h1><p>Чубу оживляет приборную панель. Выберите эмоции, заставку, звук и цвет корпуса — соберём устройство под вас.</p><div className="hero-actions"><a className="button" href="#case">Собрать Чубу <span>↗</span></a><a className="text-link" href="#emotions">Посмотреть эмоции ↓</a></div><div className="facts"><span>64 анимации</span><span>Настройка под вас</span><span>Сделано с характером</span></div></div><div className="hero-display"><div className="screen-label">CHUBU / DISPLAY <span>● ONLINE</span></div><div className="screen"><img src={gif(9)} alt="Анимированные глаза Чубу"/></div><div className="display-bottom"><span>НАЖМИ. УЛЫБНИСЬ. ПОЕХАЛИ.</span><b>✳</b></div></div></section>
   <section className="config wrap"><div className="section-intro"><div><div className="eyebrow">КОНФИГУРАТОР</div><h2>Ваш Чубу,<br/><em>ваши правила.</em></h2></div><p>Выберите детали, а в конце проверьте заказ.</p></div><form id="config" onSubmit={submit}>
   <section className="card" id="package"><div className="card-head"><div><span className="kicker">КОМПЛЕКТАЦИЯ</span><h3>Выберите своего Чубу</h3></div></div><div className="packages">{packages.map((p,i) => <label className="package" key={p}><input type="radio" name="package" value={p} checked={settings.package === p} onChange={() => set('package',p)}/><span><strong>{['Базовая','С кнопкой и пищалкой','Максимальная'][i]}</strong><small>{['Устройство в базовой комплектации','Базовая комплектация + кнопка и пищалка','Кнопка, пищалка, вибромотор и светодиодная полоска'][i]}</small><b>{['3 000 ₽','3 500 ₽','4 000 ₽'][i]}</b></span></label>)}</div>{settings.package === packages[2] && <div className="led-choice"><span className="field-label">ЦВЕТ СВЕТОДИОДНОЙ ПОЛОСКИ</span><p className="muted">Выберите цвет свечения для максимальной комплектации.</p><div className="led-colors" role="group" aria-label="Цвет светодиодной полоски">{ledColors.map(([name, value]) => <button type="button" key={name} className="led-color" aria-pressed={ledColor === name} onClick={() => setLedColor(name)}><span className="led-dot" style={{backgroundColor: value}}/>{name}</button>)}</div></div>}</section>
-  <section className="card" id="case"><div className="card-head"><div><span className="kicker">КОРПУС</span><h3>Выберите цвет</h3><p>Вращайте модель мышью или пальцем.</p></div><span className="pill">3D ПРОСМОТР</span></div><div className="case-layout"><Model color={colors.find(c => c[0] === color)?.[1] ?? '#202020'}/><div className="case-options"><span className="field-label">ЦВЕТ КОРПУСА</span><div id="colors" className="colors">{colors.map(([name,value]) => <button type="button" key={name} className="swatch" style={{background:value}} aria-label={name} aria-pressed={color === name} onClick={() => setColor(name)}/>)}</div><p className="color-name">{color}</p><div className="info">Цвет на экране может отличаться от цвета готового изделия.</div><span className="field-label">ВЫБРАННАЯ КОМПЛЕКТАЦИЯ</span><strong className="price" id="price">{['3 000 ₽','3 500 ₽','4 000 ₽'][packages.indexOf(settings.package)]}</strong><p className="muted">Стоимость доставки уточняется.</p></div></div></section>
+  <section className="card" id="case"><div className="card-head"><div><span className="kicker">КОРПУС</span><h3>Выберите цвет</h3><p>Вращайте модель мышью или пальцем.</p></div><span className="pill">3D ПРОСМОТР</span></div><div className="case-layout"><Model color={colors.find(c => c[0] === color)?.[1] ?? '#202020'} maximum={settings.package === packages[2]} ledColor={ledColors.find(c => c[0] === ledColor)?.[1] ?? '#ad6aee'}/><div className="case-options"><span className="field-label">ЦВЕТ КОРПУСА</span><div id="colors" className="colors">{colors.map(([name,value]) => <button type="button" key={name} className="swatch" style={{background:value}} aria-label={name} aria-pressed={color === name} onClick={() => setColor(name)}/>)}</div><p className="color-name">{color}</p><div className="info">Цвет на экране может отличаться от цвета готового изделия.</div><span className="field-label">ВЫБРАННАЯ КОМПЛЕКТАЦИЯ</span><strong className="price" id="price">{['3 000 ₽','3 500 ₽','4 000 ₽'][packages.indexOf(settings.package)]}</strong><p className="muted">Стоимость доставки уточняется.</p></div></div></section>
   <section className="card" id="emotions"><div className="card-head"><div><span className="kicker">ХАРАКТЕР</span><h3>Эмоции Чубу</h3><p>Выберите анимации, которые будут на устройстве.</p></div><span className="pill" id="count">{selected.size} / 64</span></div><div className="controls"><input id="search" type="search" placeholder="Найти эмоцию" aria-label="Найти эмоцию" value={query} onChange={e => setQuery(e.target.value)}/><button type="button" className="subtle" id="all" onClick={() => setSelected(new Set(emotions.map(e => e.index)))}>Выбрать все</button><button type="button" className="subtle" id="none" onClick={() => { setSelected(new Set([9])); setSettings(s => ({...s,idle:actionOptions[0],intro:'Ничего',touch:actionOptions[0],double:actionOptions[0]})) }}>Снять выбор</button></div><div id="emotion-grid" className="emotion-grid">{emotions.filter(e => e.title.toLowerCase().includes(query.trim().toLowerCase())).map(e => <div className="emotion" key={e.index}><img src={gif(e.index)} loading="lazy" alt=""/><label className="emotion-label"><input type="checkbox" value={e.index} checked={selected.has(e.index)} disabled={e.index === 9} onChange={event => toggleEmotion(e.index,event.target.checked)}/>{e.index + 1}. {e.title}</label>{clipKind(e.index) && <button type="button" className="clip-play" onClick={() => playClip(e.index, 'Усилитель I2S', true, volume)}>▶ {clipKind(e.index)}</button>}</div>)}</div><p className="muted">Обычные глазки остаются включёнными между эмоциями.</p></section>
   <ConfigurationPanels pins={pins} setPins={setPins} settings={settings} set={set} pickAction={pickAction} splash={splash} setTiming={setSplashTiming} logo={logo} logoName={logoName} setLogo={(data, name, file) => { setLogo(data); setLogoName(name); setLogoFile(file); setOrderLinks([]) }} soundOn={soundOn} setSoundOn={setSoundOn} clipsOn={clipsOn} setClipsOn={setClipsOn} output={output} setOutput={setOutput} volume={volume} setVolume={setVolume} tunes={tunes} setTunes={setTunes} invert={invert} setInvert={setInvert} preview={preview} showAction={showAction} showSplash={showSplash} summary={summary}/>
   <section className="card order" id="order"><div className="card-head"><div><span className="kicker">ПОСЛЕДНИЙ ШАГ</span><h3>Осталось познакомиться</h3><p>Оставьте контакты — обсудим детали и стоимость.</p></div></div><div className="fields">{([['Имя','name',80],['Телефон или @имя в Telegram','contact',120],['Город','city',80],['Комментарий','comment',300]] as const).map(([label,key,max]) => <label key={key}>{label}{key !== 'comment' && <span> *</span>}<input name={key} required={key !== 'comment'} placeholder={key === 'contact' ? '+7 999 123-45-67 или @username' : undefined} maxLength={max} value={settings[key]} onChange={e => set(key,e.target.value)}/></label>)}</div><div className="submit-row"><p>{ORDER_API_URL ? 'Отправим заказ и выбранный логотип продавцу в Telegram.' : logoFile ? 'Сначала подготовьте заказ, затем отправьте текст и картинку логотипа в Telegram.' : 'Откроется Telegram с готовым текстом заказа. Проверьте его и нажмите «Отправить».'}</p><button className="button" type="submit" disabled={tuneProblems || sendingOrder}>{sendingOrder ? 'Отправляем…' : ORDER_API_URL ? 'Отправить заказ' : logoFile ? 'Подготовить заказ' : 'Отправить заказ'} <span>↗</span></button></div>{orderSent && <p role="status">Заказ отправлен. Мы свяжемся с вами!</p>}{orderError && <p role="alert" className="sound-error">{orderError}</p>}{tuneProblems && <p role="alert" className="sound-error">Исправьте ошибки в мелодиях, прежде чем отправить заказ.</p>}{orderLinks.length > 0 && <div id="result" className="order-delivery" role="status"><strong>{logoFile ? '1. Отправьте заказ' : 'Заказ подготовлен'}</strong><p>{orderMode === 'parts' ? 'Отправьте каждую часть заказа по порядку: откройте ссылку и нажмите «Отправить» в Telegram.' : orderMode === 'page' ? 'Откройте Telegram и отправьте сообщение со ссылкой на полный заказ. Отправьте его продавцу.' : 'Откройте заказ, проверьте текст в Telegram и нажмите «Отправить».'}</p>{orderLinks.map((link, i) => <a className="subtle" key={link} href={link} target="_blank" rel="noopener noreferrer" style={{display: 'inline-flex', marginRight: 8, marginBottom: 8}}>{orderLinks.length > 1 ? `Отправить часть ${i + 1} из ${orderLinks.length} ↗` : 'Открыть заказ в Telegram ↗'}</a>)}{logoFile && <LogoAttachment file={logoFile}/>}</div>}</section>
